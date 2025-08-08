@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Indiana County Shipments (Online version)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"/>
+<style>
+  :root { --border: #333; }
+  html, body { height: 100%; margin: 0; background: #ffffff; }
+  body { display: flex; flex-direction: column; }
+  header { padding: 10px 14px; font-family: Arial, sans-serif; font-size: 16px; font-weight: 600; }
+  #map { flex: 1; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .info { padding: 6px 8px; background: rgba(255,255,255,.95); box-shadow: 0 0 15px rgba(0,0,0,.2); border-radius: 5px; font-family: Arial, sans-serif; }
+  .legend { line-height: 18px; color: #555; }
+  .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 1; border: 1px solid #999; }
+  .county-label { 
+    background: transparent; border: none; box-shadow: none;
+    font: 12px/12px Arial, sans-serif; color: #000;
+    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+    pointer-events: none;
+  }
+  /* Print-friendly */
+  @media print {
+    @page { size: letter landscape; margin: 0.25in; }
+    header { font-size: 14px; padding: 4px 0; }
+    #map { height: auto; }
+  }
+</style>
+</head>
+<body>
+<header>Indiana County Shipments (Quantity Shipped)</header>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<script>
+const salesByCounty = {"Allen": 945, "Boone": 222425, "Cass": 13650, "Clinton": 6825, "Decatur": 3255, "Delaware": 27826, "Franklin": 180915, "Grant": 60205, "Hamilton": 2011519, "Hancock": 82672, "Hendricks": 455688, "Henry": 31185, "Howard": 114970, "Johnson": 270973, "Madison": 50925, "Marion": 793601, "Miami": 13650, "Monroe": 2580, "Putnam": 64494, "Ripley": 27720, "Shelby": 624, "Tippecanoe": 262908, "Tipton": 7665, "Vigo": 1575, "Wayne": 14805};
+const vmin = 624;
+const vmax = 2011519;
+
+function normalizeCountyName(raw) {
+  if (!raw) return '';
+  let n = String(raw);
+  n = n.replace(/,\s*Indiana$/i, '');
+  n = n.replace(/ County$/i, '');
+  return n.trim();
+}
+
+function getColor(d) {
+  if (d === null || d === undefined) return '#eeeeee';
+  const t = (d - vmin) / (vmax - vmin);
+  const r = Math.round(0 + t * 220);
+  const g = Math.round(150 * (1 - t));
+  return 'rgb(' + r + ',' + g + ',0)';
+}
+
+function style(feature) {
+  const raw = feature.properties.name || feature.properties.NAME || feature.properties.NAMELSAD || feature.properties.CNTY_NAME || feature.properties.COUNTY_NAM;
+  const name = normalizeCountyName(raw);
+  const val = salesByCounty[name];
+  return {
+    fillColor: getColor(val),
+    weight: 1.2,
+    opacity: 1,
+    color: '#333',
+    fillOpacity: 1.0
+  };
+}
+
+function onEachFeature(feature, layer) {
+  const raw = feature.properties.name || feature.properties.NAME || feature.properties.NAMELSAD || feature.properties.CNTY_NAME || feature.properties.COUNTY_NAM;
+  const name = normalizeCountyName(raw);
+  const val = salesByCounty[name];
+  const valText = (val !== undefined) ? Number(val).toLocaleString() : 'No data';
+  layer.bindTooltip('<strong>' + name + ' County</strong><br>Quantity Shipped: ' + valText, {sticky: true});
+
+  const center = layer.getBounds().getCenter();
+  const label = L.tooltip({
+    permanent: true,
+    direction: 'center',
+    className: 'county-label'
+  })
+  .setContent(name)
+  .setLatLng(center);
+  label.addTo(map);
+}
+
+const map = L.map('map', { zoomControl: true, attributionControl: false });
+
+fetch('https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/indiana-counties.geojson')
+  .then(resp => resp.json())
+  .then(geojson => {
+    const countyLayer = L.geoJson(geojson, { style: style, onEachFeature: onEachFeature }).addTo(map);
+    map.fitBounds(countyLayer.getBounds(), { padding: [10,10] });
+
+    const legend = L.control({position:'bottomright'});
+    legend.onAdd = function() {
+      const div = L.DomUtil.create('div','info legend');
+      const grades = [vmin, vmin+(vmax-vmin)*.25, vmin+(vmax-vmin)*.5, vmin+(vmax-vmin)*.75, vmax];
+      let html = '<b>Quantity Shipped</b>';
+      for (let i=0; i<grades.length; i++) {
+        const v = Math.round(grades[i]);
+        html += '<br><i style="background:' + getColor(v) + '"></i> ' + v.toLocaleString();
+      }
+      div.innerHTML = html;
+      return div;
+    };
+    legend.addTo(map);
+  })
+  .catch(err => {
+    console.error('Failed to load GeoJSON:', err);
+    const div = document.createElement('div');
+    div.style.padding = '12px';
+    div.style.fontFamily = 'Arial, sans-serif';
+    div.innerHTML = 'Failed to load county boundaries. If you opened this file directly (file://), upload it to GitHub Pages or serve it via http(s).';
+    document.body.appendChild(div);
+  });
+</script>
+</body>
+</html>
